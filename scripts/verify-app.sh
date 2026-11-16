@@ -42,7 +42,7 @@ SPARKLE_FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
 APP_ICON="$APP/Contents/Resources/AppIcon.icns"
 ICON_SOURCE="$ROOT/Resources/AppIcon.png"
 EXPECTED_ICON_ICNS="$ROOT/Resources/AppIcon.icns"
-ICON_CORNER_STYLE="opaque"
+ICON_CORNER_STYLE="transparent"
 if [[ "$RELEASE_VARIANT" == "intel" ]]; then
   APP_ICON="$APP/Contents/Resources/AppIcon.icns"
   ICON_SOURCE="$ROOT/Resources/AppIcons/faceted-duck.png"

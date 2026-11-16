@@ -9,7 +9,7 @@ set -euo pipefail
 
 ROOT="${0:A:h:h}"
 BUNDLE_IDENTIFIER="${SAYALL_DEV_BUNDLE_IDENTIFIER:-com.hehf.SayAllDev}"
-DISPLAY_NAME="${SAYALL_DEV_DISPLAY_NAME:-SayAll Dev}"
+DISPLAY_NAME="${SAYALL_DEV_DISPLAY_NAME:-遥麦 Dev}"
 URL_SCHEME="${SAYALL_DEV_URL_SCHEME:-sayall-dev}"
 TARGET="${SAYALL_DEV_APP_TARGET:-$HOME/Applications/SayAllDev.app}"
 STATE="$HOME/.sayall-dev-build"

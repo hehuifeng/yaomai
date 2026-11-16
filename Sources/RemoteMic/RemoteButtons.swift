@@ -821,7 +821,7 @@ enum PresetApplication: String, CaseIterable, Identifiable {
 
     var bundleIdentifier: String {
         switch self {
-        case .remoteMic: return "com.hd838a.RemoteMic"
+        case .remoteMic: return AppIdentity.bundleIdentifier
         case .codex: return "com.openai.codex"
         case .workBuddy: return "com.tencent.workbuddy.mac"
         case .claude: return "com.anthropic.claudefordesktop"

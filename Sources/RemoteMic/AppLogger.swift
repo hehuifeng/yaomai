@@ -88,7 +88,7 @@ final class AppLogger: PublicDiagnosticEventSink {
         let fileManager = FileManager.default
         let base = fileManager.urls(for: .libraryDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Logs", isDirectory: true)
-            .appendingPathComponent("RemoteMic", isDirectory: true)
+            .appendingPathComponent(AppIdentity.storageComponent, isDirectory: true)
         let sessionName = UUID().uuidString.replacingOccurrences(of: "-", with: "")
             .prefix(8)
         let day = Self.dayIdentifier(Date())
@@ -102,7 +102,7 @@ final class AppLogger: PublicDiagnosticEventSink {
             publicKeyDataProvider: { DiagnosticLogPublicKeyConfiguration.current() },
             publicEventStore: loggingEnabled ? PublicDiagnosticEventStore(fileURL:
                 fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                    .appendingPathComponent("SayAll/Diagnostics/public-events.json")
+                    .appendingPathComponent("\(AppIdentity.diagnosticComponent)/Diagnostics/public-events.json")
             ) : nil,
             isEnabled: loggingEnabled
         )

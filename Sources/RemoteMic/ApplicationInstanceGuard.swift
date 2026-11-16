@@ -54,7 +54,7 @@ final class ApplicationInstanceLock {
 }
 
 enum ApplicationInstanceGuard {
-    static let fallbackBundleIdentifier = "com.hd838a.RemoteMic"
+    static let fallbackBundleIdentifier = AppIdentity.bundleIdentifier
 
     static func existingApplication(
         bundleIdentifier: String,
@@ -71,7 +71,7 @@ enum ApplicationInstanceGuard {
 
     static func defaultLockURL(fileManager: FileManager = .default) -> URL? {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("RemoteMic", isDirectory: true)
+            .appendingPathComponent(AppIdentity.storageComponent, isDirectory: true)
             .appendingPathComponent(".app-instance.lock", isDirectory: false)
     }
 }

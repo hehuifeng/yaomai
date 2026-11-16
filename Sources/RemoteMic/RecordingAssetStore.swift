@@ -465,7 +465,7 @@ final class RecordingAssetStore {
 
     private static func defaultRootDirectoryURL() -> URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("RemoteMic", isDirectory: true)
+            .appendingPathComponent(AppIdentity.storageComponent, isDirectory: true)
             .appendingPathComponent("Recordings", isDirectory: true)
             .appendingPathComponent("v1", isDirectory: true)
     }

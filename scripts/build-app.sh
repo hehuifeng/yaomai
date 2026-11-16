@@ -23,6 +23,31 @@ REQUIRE_SAYALL_CHROMECAST="${REQUIRE_SAYALL_CHROMECAST:-0}"
 REQUIRE_DIAGNOSTIC_PUBLIC_KEY="${REQUIRE_DIAGNOSTIC_PUBLIC_KEY:-0}"
 REQUIRE_DIAGNOSTIC_SERVICE="${REQUIRE_DIAGNOSTIC_SERVICE:-0}"
 REQUIRE_RELEASE_BUILD_CHANNEL="${REQUIRE_RELEASE_BUILD_CHANNEL:-0}"
+# Optional development identity. All three values must be supplied together;
+# leaving them empty keeps the official release identity and behavior.
+SAYALL_BUNDLE_IDENTIFIER_OVERRIDE="${SAYALL_BUNDLE_IDENTIFIER:-}"
+SAYALL_APP_DISPLAY_NAME_OVERRIDE="${SAYALL_APP_DISPLAY_NAME:-}"
+SAYALL_URL_SCHEME_OVERRIDE="${SAYALL_URL_SCHEME:-}"
+SAYALL_DEVELOPMENT_IDENTITY=false
+if [[ -n "$SAYALL_BUNDLE_IDENTIFIER_OVERRIDE" ||
+      -n "$SAYALL_APP_DISPLAY_NAME_OVERRIDE" ||
+      -n "$SAYALL_URL_SCHEME_OVERRIDE" ]]; then
+  if [[ -z "$SAYALL_BUNDLE_IDENTIFIER_OVERRIDE" ||
+        -z "$SAYALL_APP_DISPLAY_NAME_OVERRIDE" ||
+        -z "$SAYALL_URL_SCHEME_OVERRIDE" ]]; then
+    print -u2 "Set SAYALL_BUNDLE_IDENTIFIER, SAYALL_APP_DISPLAY_NAME and SAYALL_URL_SCHEME together."
+    exit 1
+  fi
+  if [[ ! "$SAYALL_BUNDLE_IDENTIFIER_OVERRIDE" =~ '^[A-Za-z0-9.-]+$' ]]; then
+    print -u2 "SAYALL_BUNDLE_IDENTIFIER must look like a reverse-DNS identifier."
+    exit 1
+  fi
+  if [[ ! "$SAYALL_URL_SCHEME_OVERRIDE" =~ '^[a-z][a-z0-9+.-]*$' ]]; then
+    print -u2 "SAYALL_URL_SCHEME must be a lowercase URL scheme."
+    exit 1
+  fi
+  SAYALL_DEVELOPMENT_IDENTITY=true
+fi
 SAYALL_AI_PACKAGE_PATH="${SAYALL_AI_PACKAGE_PATH:-}"
 SAYALL_COMBINATION_ACTIONS_PATH="${SAYALL_COMBINATION_ACTIONS_PATH:-}"
 SAYALL_BUTTON_PROFILES_PACKAGE_PATH="${SAYALL_BUTTON_PROFILES_PACKAGE_PATH:-}"
@@ -698,6 +723,24 @@ if [[ "$SAYALL_CHROMECAST_INCLUDED" == "true" ]]; then
 fi
 ditto --norsrc --noextattr --noqtn --noacl \
   "$ROOT/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
+if [[ "$SAYALL_DEVELOPMENT_IDENTITY" == "true" ]]; then
+  # 开发版身份：与官方包共存所需的独立 Bundle ID、URL scheme、UTI，
+  # 并关闭自动更新，避免开发版被官方 appcast 替换。
+  DEVELOPMENT_PLIST="$APP_DIR/Contents/Info.plist"
+  plutil -replace CFBundleIdentifier -string "$SAYALL_BUNDLE_IDENTIFIER_OVERRIDE" "$DEVELOPMENT_PLIST"
+  plutil -replace CFBundleDisplayName -string "$SAYALL_APP_DISPLAY_NAME_OVERRIDE" "$DEVELOPMENT_PLIST"
+  plutil -replace CFBundleName -string "$SAYALL_APP_DISPLAY_NAME_OVERRIDE" "$DEVELOPMENT_PLIST"
+  plutil -replace SayAllDevelopmentEdition -bool true "$DEVELOPMENT_PLIST" 2>/dev/null ||
+    plutil -insert SayAllDevelopmentEdition -bool true "$DEVELOPMENT_PLIST"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLName $SAYALL_BUNDLE_IDENTIFIER_OVERRIDE.launch" "$DEVELOPMENT_PLIST"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLSchemes:0 $SAYALL_URL_SCHEME_OVERRIDE" "$DEVELOPMENT_PLIST"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleDocumentTypes:0:LSItemContentTypes:0 $SAYALL_BUNDLE_IDENTIFIER_OVERRIDE.sayall" "$DEVELOPMENT_PLIST"
+  /usr/libexec/PlistBuddy -c "Set :UTExportedTypeDeclarations:0:UTTypeIdentifier $SAYALL_BUNDLE_IDENTIFIER_OVERRIDE.sayall" "$DEVELOPMENT_PLIST"
+  plutil -remove SUFeedURL "$DEVELOPMENT_PLIST" 2>/dev/null || true
+  plutil -replace SUEnableAutomaticChecks -bool false "$DEVELOPMENT_PLIST"
+  plutil -replace SUAllowsAutomaticUpdates -bool false "$DEVELOPMENT_PLIST"
+  plutil -replace SUAutomaticallyUpdate -bool false "$DEVELOPMENT_PLIST"
+fi
 # 构建来源：把实际构建树与基线写进产物，发布脚本会从 DMG/App 读回来核对。
 # 2026-11-05 的 284 就是「说明写 main、包里却是旧分支」，事后只能靠翻目录才发现。
 SOURCE_COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || print unknown)"
@@ -1101,3 +1144,6 @@ codesign --verify --deep --strict "$APP_DIR"
 print "$APP_DIR"
 print "RELEASE VARIANT: $RELEASE_VARIANT"
 print "SIGNING IDENTITY: $SIGNING_IDENTITY"
+if [[ "$SAYALL_DEVELOPMENT_IDENTITY" == "true" ]]; then
+  print "DEVELOPMENT IDENTITY: $SAYALL_BUNDLE_IDENTIFIER_OVERRIDE"
+fi

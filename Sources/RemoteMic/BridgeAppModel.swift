@@ -4161,12 +4161,24 @@ final class BridgeAppModel: NSObject, ObservableObject, XiaomiBluetoothBridgeDel
     private var configuredButtonInteractions: [String: RemoteButtonInteractionController] = [:]
     private var configuredButtonInteractionOwners: [String: UUID] = [:]
 
-    private func buttonInteractionSnapshot(_ button: RemoteButton, profileID: UUID?) -> RemoteButtonInteractionSnapshot {
-        var snapshot = settings.interactionSnapshot(for: button, profileID: profileID) { [self] trigger in
+    private func buttonInteractionSnapshot(
+        _ button: RemoteButton,
+        profileID: UUID?,
+        keymapContext: KeymapContext? = nil
+    ) -> RemoteButtonInteractionSnapshot {
+        var snapshot = settings.interactionSnapshot(
+            for: button,
+            profileID: profileID,
+            keymapContext: keymapContext
+        ) { [self] trigger in
             macroFeature.hasActiveBinding(profileID: profileID, button: button, trigger: trigger) &&
                 settings.configuredActionOverride?(profileID, button, trigger) == nil
         }
-        let resolved = resolvedHoldActions(device: profileID, button: button)
+        let resolved = resolvedHoldActions(
+            device: profileID,
+            button: button,
+            keymapContext: keymapContext
+        )
         snapshot.holdableSingle = resolved.single
         snapshot.holdableLong = resolved.long
         if let mode = snapshot.mode, mode.isHoldDown, !snapshot.blockers(for: mode).isEmpty {
@@ -4175,13 +4187,22 @@ final class BridgeAppModel: NSObject, ObservableObject, XiaomiBluetoothBridgeDel
         return snapshot
     }
 
-    /// 按住执行按当前生效的方案解析：方案覆盖的动作优先，其次基础映射。
+    /// 按住执行按当前生效的方案解析：App 键位方案优先，其次私有方案覆盖，最后基础映射。
     private func resolvedHoldActions(
         device: UUID?,
-        button: RemoteButton
+        button: RemoteButton,
+        keymapContext: KeymapContext? = nil
     ) -> (single: ConfiguredButtonAction, long: ConfiguredButtonAction) {
         let scheme = macroFeature.activeMappingProfileID(device: device)
+        let keymapID = settings.resolvedAppKeymapProfileID(for: keymapContext)
         func resolve(_ trigger: ButtonTrigger) -> ConfiguredButtonAction {
+            if let keymapID, let binding = settings.appKeymapBinding(
+                keymapID: keymapID,
+                button: button,
+                trigger: trigger
+            ) {
+                return binding
+            }
             if let scheme, let binding = macroFeature.profileBinding(
                 device: device, profile: scheme, button: button, trigger: trigger
             ) {
@@ -4324,8 +4345,12 @@ final class BridgeAppModel: NSObject, ObservableObject, XiaomiBluetoothBridgeDel
             holdEndPerformer: { [weak self] reason in
                 self?.endHeldKeyExecution(reason: reason)
             },
-            holdTargetResolver: { [weak self] device, button in
-                self?.resolvedHoldActions(device: device, button: button)
+            holdTargetResolver: { [weak self] device, button, keymapContext in
+                self?.resolvedHoldActions(
+                    device: device,
+                    button: button,
+                    keymapContext: keymapContext
+                )
             },
             overrideActionPerformer: { [weak self] profileID, button, trigger in
                 self?.performButtonProfileBoundAction(

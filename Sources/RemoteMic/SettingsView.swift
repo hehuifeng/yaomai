@@ -604,6 +604,7 @@ struct SettingsView: View {
     @ObservedObject private var privateFeature: PrivateFeatureIntegration
     @State private var preservesMappingContextOnNavigation = false
     @State private var editingMappingProfileID: UUID?
+    @State private var editingAppKeymapProfileID: UUID?
     @State private var mappingActionSave = ButtonMappingSaveState()
     @State private var mappingHoldSave = ButtonMappingSaveState()
     @State private var mappingProfileCreation: ButtonMappingProfileCreation?
@@ -2186,6 +2187,29 @@ struct SettingsView: View {
     }
 
     private func mappingDisplayConfiguration(for button: RemoteButton, trigger: ButtonTrigger) -> MappingDisplayValue<MappingBindingDisplay> {
+        if let keymapID = editingAppKeymapProfileID {
+            guard RemoteButton.appKeymapCases.contains(button) else {
+                return .explicit(.init(
+                    configured: settings.configuredBaseAction(for: button, trigger: trigger),
+                    compact: "",
+                    detailed: "",
+                    isEditable: false
+                ))
+            }
+            if let configured = settings.appKeymapBinding(
+                keymapID: keymapID,
+                button: button,
+                trigger: trigger
+            ) {
+                return .explicit(.init(
+                    configured: configured,
+                    compact: "",
+                    detailed: "",
+                    isEditable: true
+                ))
+            }
+            return .inherited
+        }
         guard let profile = editingMappingProfileID else {
             return .explicit(.init(configured: settings.configuredBaseAction(for: button, trigger: trigger),
                 compact: "", detailed: "", isEditable: true))
@@ -2207,6 +2231,9 @@ struct SettingsView: View {
     }
 
     private func canWriteMappingBinding(button: RemoteButton, trigger: ButtonTrigger) -> Bool {
+        if editingAppKeymapProfileID != nil {
+            return RemoteButton.appKeymapCases.contains(button)
+        }
         guard !isMappingProfilePreviewOnly else { return false }
         switch mappingDisplayConfiguration(for: button, trigger: trigger) {
         case let .explicit(value): return value.isEditable
@@ -2220,6 +2247,52 @@ struct SettingsView: View {
         let previousAction = mappingConfiguration(for: button, trigger: trigger)
         let previousHold = mappingHoldMode(for: button)
         mappingHoldSave = .init()
+        if let keymapID = editingAppKeymapProfileID {
+            let device = settings.selectedRemoteProfileID
+            let operationID = UUID().uuidString
+            AppLogger.shared.write(
+                "BUTTON CONFIGURATION operation_id=\(operationID) scope=app_keymap " +
+                    "button=\(button.rawValue) trigger=\(trigger.rawValue) " +
+                    "action=write phase=requested result=requested"
+            )
+            settings.setAppKeymapBinding(
+                configured,
+                keymapID: keymapID,
+                button: button,
+                trigger: trigger
+            )
+            let expected = configured?.normalizedForExecution
+            let matches = settings.appKeymapBinding(
+                keymapID: keymapID,
+                button: button,
+                trigger: trigger
+            ) == expected
+            let outcome: ButtonMappingWriteRecovery.Outcome = matches ? .saved : .failed
+            mappingActionSave.record(
+                outcome,
+                retry: .action(configured),
+                target: .init(
+                    profileID: keymapID,
+                    deviceID: device,
+                    button: button,
+                    trigger: trigger
+                )
+            )
+            if outcome == .saved {
+                reconcileHoldAfterActionChange(
+                    button: button,
+                    trigger: trigger,
+                    previousAction: previousAction,
+                    previousHold: previousHold,
+                    operationID: operationID
+                )
+            }
+            AppLogger.shared.write(
+                "BUTTON CONFIGURATION operation_id=\(operationID) action=write " +
+                    "phase=completed result=\(String(describing: outcome))"
+            )
+            return
+        }
         let profile = editingMappingProfileID
         let device = settings.selectedRemoteProfileID
         let operationID = UUID().uuidString
@@ -2278,8 +2351,17 @@ struct SettingsView: View {
         saveMappingBinding(configured, button: button, trigger: trigger)
     }
 
+    private var isEditingAnyProfileScope: Bool {
+        editingMappingProfileID != nil || editingAppKeymapProfileID != nil
+    }
+
     /// 方案作用域只覆盖 10 个普通按键，其余控制项置灰且不可点。
     private var profileScopeReservedButtons: Set<RemoteButton> {
+        if editingAppKeymapProfileID != nil {
+            return Set(RemoteButton.allCases.filter {
+                !RemoteButton.appKeymapCases.contains($0)
+            })
+        }
         guard editingMappingProfileID != nil else { return [] }
         return Set(RemoteButton.allCases.filter { !macroFeature.supportsProfileButton($0.rawValue) })
     }
@@ -2296,7 +2378,13 @@ struct SettingsView: View {
 
     /// 纯文本形式的同一份名单，供作用域提示这类只能塞一句话的位置使用。
     private var profileScopedButtonNames: String {
-        profileScopeItems
+        let items: [ButtonProfileScopeItem]
+        if editingAppKeymapProfileID != nil {
+            items = RemoteButton.profileScopeItems(for: RemoteButton.appKeymapCases)
+        } else {
+            items = profileScopeItems
+        }
+        return items
             .map { $0.displayName(using: localization) }
             .joined(separator: localization.text("common.list.separator"))
     }
@@ -2871,22 +2959,47 @@ struct SettingsView: View {
             // 上下留白都在滚动区域之外，滚动时不会塌掉。
             // 画布第一张卡片自带约 6.5pt 内部留白，所以静止时下侧会比纯 padding 多这一段：
             // 上 8pt、下 5pt 是让「静止」和「滚动中」两种状态都尽量接近 10pt 的取值。
+            AppKeymapToolbar(
+                settings: settings,
+                editingProfileID: Binding(
+                    get: { editingAppKeymapProfileID },
+                    set: { value in
+                        editingAppKeymapProfileID = value
+                        if value != nil { editingMappingProfileID = nil }
+                    }
+                ),
+                onEnableCustomMapping: { setCustomMappingEnabled(true) }
+            )
+            .onChange(of: editingMappingProfileID) { value in
+                if value != nil { editingAppKeymapProfileID = nil }
+            }
+
             if macroFeature.isButtonProfilesVisible { mappingProfileToolbar }
 
             ScrollViewReader { proxy in
                 Group {
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 16) {
-                            if editingMappingProfileID != nil, !profileScopedButtonNames.isEmpty {
+                            if isEditingAnyProfileScope, !profileScopedButtonNames.isEmpty {
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(String(
-                                        format: localization.text("button_mapping.profile_scope_hint"),
-                                        profileScopedButtonNames
-                                    ))
+                                    Group {
+                                        if let keymapID = editingAppKeymapProfileID,
+                                           let profile = settings.appKeymapProfile(id: keymapID) {
+                                            Text(String(
+                                                format: localization.text("app_keymap.scope.hint"),
+                                                profile.displayName,
+                                                profileScopedButtonNames
+                                            ))
+                                        } else {
+                                            Text(String(
+                                                format: localization.text("button_mapping.profile_scope_hint"),
+                                                profileScopedButtonNames
+                                            ))
+                                        }
+                                    }
                                     .font(.system(size: 11))
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
-
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -2961,6 +3074,7 @@ struct SettingsView: View {
                     mappingEditingTarget = nil
                     mappingHoldEditingButton = nil
                     isMappingVoiceSettingsPresented = false
+                    editingAppKeymapProfileID = nil
                     shortcutCaptureTarget = nil
                     applicationShortcutCaptureProfileID = nil
                     DispatchQueue.main.async {
@@ -3907,6 +4021,46 @@ struct SettingsView: View {
     }
 
     private func clearMappingOverride(button: RemoteButton, trigger: ButtonTrigger) {
+        if let keymapID = editingAppKeymapProfileID {
+            guard RemoteButton.appKeymapCases.contains(button) else { return }
+            let previousAction = mappingConfiguration(for: button, trigger: trigger)
+            let previousHold = mappingHoldMode(for: button)
+            let operationID = UUID().uuidString
+            AppLogger.shared.write(
+                "BUTTON CONFIGURATION operation_id=\(operationID) scope=app_keymap " +
+                    "button=\(button.rawValue) trigger=\(trigger.rawValue) " +
+                    "action=clear_override phase=requested result=requested"
+            )
+            settings.setAppKeymapBinding(
+                nil,
+                keymapID: keymapID,
+                button: button,
+                trigger: trigger
+            )
+            clearMappingSaveFeedback()
+            mappingActionSave.record(
+                .saved,
+                retry: .action(previousAction),
+                target: .init(
+                    profileID: keymapID,
+                    deviceID: settings.selectedRemoteProfileID,
+                    button: button,
+                    trigger: trigger
+                )
+            )
+            reconcileHoldAfterActionChange(
+                button: button,
+                trigger: trigger,
+                previousAction: previousAction,
+                previousHold: previousHold,
+                operationID: operationID
+            )
+            AppLogger.shared.write(
+                "BUTTON CONFIGURATION operation_id=\(operationID) " +
+                    "action=clear_override phase=completed result=saved"
+            )
+            return
+        }
         guard let profile = editingMappingProfileID, !isMappingProfilePreviewOnly else { return }
         let previousAction = mappingConfiguration(for: button, trigger: trigger)
         let previousHold = mappingHoldMode(for: button)
@@ -4089,6 +4243,11 @@ struct SettingsView: View {
     }
 
     private func mappingHoldMode(for button: RemoteButton) -> RemoteButtonHoldMode {
+        if let keymapID = editingAppKeymapProfileID,
+           RemoteButton.appKeymapCases.contains(button) {
+            return settings.appKeymapHoldMode(keymapID: keymapID, button: button)
+                ?? settings.interactionSettings.mode(for: button) ?? .once
+        }
         if let profile = editingMappingProfileID, macroFeature.supportsProfileButton(button.rawValue) {
             switch macroFeature.displayProfileHoldMode(profile: profile, button: button) {
             case let .explicit(mode): return mode
@@ -4106,7 +4265,11 @@ struct SettingsView: View {
     /// 方案页与按键页共用的唯一实现：按住只说一次，避免两边各拼一套文案。
     private func mappingHoldSummary(for button: RemoteButton, profileID: UUID?) -> String {
         let mode: RemoteButtonHoldMode?
-        if let profileID, macroFeature.supportsProfileButton(button.rawValue) {
+        if let keymapID = editingAppKeymapProfileID,
+           RemoteButton.appKeymapCases.contains(button) {
+            mode = settings.appKeymapHoldMode(keymapID: keymapID, button: button)
+                ?? settings.interactionSettings.mode(for: button)
+        } else if let profileID, macroFeature.supportsProfileButton(button.rawValue) {
             switch macroFeature.displayProfileHoldMode(profile: profileID, button: button) {
             case let .explicit(value): mode = value
             case .inherited: mode = settings.interactionSettings.mode(for: button)
@@ -4147,6 +4310,40 @@ struct SettingsView: View {
         guard canWriteMappingHold(button) || (mode == .once && canClearMappingHold(button)) else {
             return .failed
         }
+        if let keymapID = editingAppKeymapProfileID,
+           RemoteButton.appKeymapCases.contains(button) {
+            let device = settings.selectedRemoteProfileID
+            let operationID = UUID().uuidString
+            AppLogger.shared.write(
+                "BUTTON CONFIGURATION operation_id=\(operationID) scope=app_keymap " +
+                    "button=\(button.rawValue) trigger=none action=hold " +
+                    "mode=\(mode.rawValue) phase=requested result=requested"
+            )
+            mappingHoldSave = .init()
+            settings.setAppKeymapHoldMode(mode, keymapID: keymapID, button: button)
+            let stored = settings.appKeymapHoldMode(keymapID: keymapID, button: button)
+            let outcome: ButtonMappingWriteRecovery.Outcome = stored == mode ? .saved : .failed
+            mappingHoldSave.record(
+                outcome,
+                retry: .hold(mode),
+                target: .init(
+                    profileID: keymapID,
+                    deviceID: device,
+                    button: button,
+                    trigger: nil
+                )
+            )
+            mappingHoldSave.holdActions = ButtonTrigger.allCases.map {
+                mappingConfiguration(for: button, trigger: $0)
+            }
+            mappingHoldSave.holdMode = mappingHoldMode(for: button)
+            AppLogger.shared.write(
+                "BUTTON CONFIGURATION operation_id=\(operationID) scope=app_keymap " +
+                    "button=\(button.rawValue) action=hold mode=\(mode.rawValue) " +
+                    "phase=completed result=\(String(describing: outcome))"
+            )
+            return outcome
+        }
         let profile = editingMappingProfileID
         let device = settings.selectedRemoteProfileID
         mappingHoldSave = .init()
@@ -4178,7 +4375,9 @@ struct SettingsView: View {
 
     private func invalidateChangedMappingHoldRetry() {
         guard mappingHoldSave.retry != nil, let target = mappingHoldSave.target else { return }
-        guard target.profileID == editingMappingProfileID, target.deviceID == settings.selectedRemoteProfileID,
+        guard target.profileID == editingMappingProfileID ||
+                target.profileID == editingAppKeymapProfileID,
+              target.deviceID == settings.selectedRemoteProfileID,
               mappingHoldSave.holdActions == ButtonTrigger.allCases.map({ mappingConfiguration(for: target.button, trigger: $0) }),
               mappingHoldSave.holdMode == mappingHoldMode(for: target.button)
         else { mappingHoldSave = .init(); return }
@@ -6346,7 +6545,7 @@ struct SettingsView: View {
     /// 悬停用的完整形态，和 `mappingActionSummary` 同一来源。
     private func mappingActionSource(for button: RemoteButton,
                                      trigger: ButtonTrigger) -> RemoteMappingActionSource {
-        guard editingMappingProfileID != nil else { return .base }
+        guard isEditingAnyProfileScope else { return .base }
         switch mappingDisplayConfiguration(for: button, trigger: trigger) {
         case .inherited:
             return .inherited
@@ -6359,7 +6558,7 @@ struct SettingsView: View {
 
     private func mappingActionDetail(for button: RemoteButton, trigger: ButtonTrigger) -> String {
         let display = mappingDisplayConfiguration(for: button, trigger: trigger)
-        if editingMappingProfileID != nil {
+        if isEditingAnyProfileScope {
             switch display {
             case .inherited:
                 return localization.text("button_mapping.binding.inherited") + "：" +
@@ -9017,6 +9216,7 @@ enum ConfigurationImportNoticeText {
         "buttonRapidPressEnabled": buttonMappingItemKey,
         "continuousRecordingPowerBindingBackup": buttonMappingItemKey,
         "customApplicationProfiles": customApplicationItemKey,
+        "appKeymapState": buttonMappingItemKey,
         "selectedAudioDeviceUID": audioDeviceItemKey,
     ]
 
@@ -9081,6 +9281,7 @@ enum CorruptedSettingsNotice {
         "buttonRapidPressEnabled": buttonMappingItemKey,
         "continuousRecordingPowerBindingBackup": buttonMappingItemKey,
         "customApplicationProfiles": customApplicationItemKey,
+        "appKeymapState": buttonMappingItemKey,
         "remoteDeviceProfiles": remoteDeviceItemKey,
         "usage.dailyStatistics": statisticsItemKey,
         "usage.voiceSessionRanking": statisticsItemKey,

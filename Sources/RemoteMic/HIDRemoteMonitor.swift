@@ -284,7 +284,7 @@ final class HIDRemoteMonitor {
     private let holdEndPerformer: (String) -> Void
     /// 解析该按键当前生效的单击与长按动作：方案覆盖优先，其次基础映射。
     private let holdTargetResolver:
-        ((UUID?, RemoteButton) -> (single: ConfiguredButtonAction, long: ConfiguredButtonAction)?)?
+        ((UUID?, RemoteButton, KeymapContext?) -> (single: ConfiguredButtonAction, long: ConfiguredButtonAction)?)?
     private let appSwitcherSession: KeyboardInjector.AppSwitcherSession
     private let minimizedWindowRestorer: (String?, String?) -> KeyboardInjector.MinimizedWindowRestoreResult
     private let windowCounter: (pid_t) -> Int?
@@ -390,6 +390,9 @@ final class HIDRemoteMonitor {
 
     private var activeUsages = Set<UInt16>()
     private var nativePassthroughUsages = Set<UInt16>()
+    /// 按下瞬间捕获的前台 App 上下文。松开路径和快照复核必须使用同一个值，
+    /// 否则切换 App 后会出现“按下用 A、松开用 B”的混用。
+    private var keymapContextByButton: [RemoteButton: KeymapContext] = [:]
     private var repeatTimers: [UInt16: HIDRemoteScheduledTask] = [:]
     /// 上一次真正执行翻页的时刻，用于按住重复时的最小间隔。
     private var lastPageRepeatAt: [UInt16: Date] = [:]
@@ -467,7 +470,7 @@ final class HIDRemoteMonitor {
         holdBeginPerformer: ((ConfiguredButtonAction) -> Bool)? = nil,
         holdEndPerformer: ((String) -> Void)? = nil,
         holdTargetResolver:
-            ((UUID?, RemoteButton) -> (single: ConfiguredButtonAction, long: ConfiguredButtonAction)?)? = nil,
+            ((UUID?, RemoteButton, KeymapContext?) -> (single: ConfiguredButtonAction, long: ConfiguredButtonAction)?)? = nil,
         overrideActionPerformer: @escaping (UUID?, RemoteButton, ButtonTrigger) -> Bool = {
             _, _, _ in false
         },
@@ -1639,6 +1642,11 @@ final class HIDRemoteMonitor {
         }
         activeUsages = usages
         onActiveButtons?(profileID, RemoteButton.buttons(for: usages))
+        // Capture once for this batch of presses. The same context is stored per
+        // button and reused on release so a foreground switch cannot mix maps.
+        let capturedKeymapContext = KeymapContext(
+            frontmostBundleIdentifier: frontmostBundleIdentifier()
+        )
 
         for usage in pressed.sorted() {
             guard let button = RemoteButton.usageMap[usage] else { continue }
@@ -1646,7 +1654,8 @@ final class HIDRemoteMonitor {
             let preflightRecognizesDoubleClick = settings.configuredAction(
                 for: button,
                 trigger: .doubleClick,
-                profileID: preflightProfileID
+                profileID: preflightProfileID,
+                keymapContext: capturedKeymapContext
             ).action != .disabled || hasOverrideBinding(
                 preflightProfileID,
                 button,
@@ -1655,22 +1664,36 @@ final class HIDRemoteMonitor {
             let preflightRecognizesLongPress = settings.configuredAction(
                 for: button,
                 trigger: .longPress,
-                profileID: preflightProfileID
+                profileID: preflightProfileID,
+                keymapContext: capturedKeymapContext
             ).action != .disabled || hasOverrideBinding(
                 preflightProfileID,
                 button,
                 .longPress
             )
-            let preflightAction = settings.action(for: button, profileID: preflightProfileID)
+            let preflightAction = settings.action(
+                for: button,
+                profileID: preflightProfileID,
+                keymapContext: capturedKeymapContext
+            )
             // An explicit binding owns the click even when it resolves to the same arrow.
             let preflightHasSingleClickOverride = settings.configuredActionOverride?(
                 preflightProfileID, button, .singleClick
-            ) != nil || hasOverrideBinding(preflightProfileID, button, .singleClick)
+            ) != nil || hasOverrideBinding(preflightProfileID, button, .singleClick) ||
+                settings.hasExplicitAppKeymapBinding(
+                    for: button,
+                    trigger: .singleClick,
+                    context: capturedKeymapContext
+                )
             let usesNativePassthrough = preflightProfileID != nil &&
                 (settings.buttonInteractionSettings(profileID: preflightProfileID).modes[button.rawValue] == nil ||
                  settings.buttonInteractionSettings(profileID: preflightProfileID).migratedRepeatButtons?.contains(button.rawValue) == true) &&
                 settings.interactionModeOverride?(preflightProfileID, button) == nil &&
                 !preflightHasSingleClickOverride &&
+                !settings.hasExplicitAppKeymapHoldMode(
+                    for: button,
+                    context: capturedKeymapContext
+                ) &&
                 claimsRuntimeButton?(preflightProfileID, button) != true && shouldUseNativePassthrough(
                 button: button,
                 action: preflightAction,
@@ -1703,7 +1726,12 @@ final class HIDRemoteMonitor {
             // Discovery may associate an existing configured device during the callback.
             let hasSingleClickOverride = settings.configuredActionOverride?(
                 profileID, button, .singleClick
-            ) != nil || hasOverrideBinding(profileID, button, .singleClick)
+            ) != nil || hasOverrideBinding(profileID, button, .singleClick) ||
+                settings.hasExplicitAppKeymapBinding(
+                    for: button,
+                    trigger: .singleClick,
+                    context: capturedKeymapContext
+                )
 
             if onRuntimeButton?(profileID, button, .press, reportMilliseconds) == true {
                 if !activeDeviceIsSeized, usesNativePassthrough { eventSuppressor.arm(button: button, edge: .down) }
@@ -1712,14 +1740,20 @@ final class HIDRemoteMonitor {
             let recognizesDoubleClick = settings.configuredAction(
                 for: button,
                 trigger: .doubleClick,
-                profileID: profileID
+                profileID: profileID,
+                keymapContext: capturedKeymapContext
             ).action != .disabled || hasOverrideBinding(profileID, button, .doubleClick)
             let recognizesLongPress = settings.configuredAction(
                 for: button,
                 trigger: .longPress,
-                profileID: profileID
+                profileID: profileID,
+                keymapContext: capturedKeymapContext
             ).action != .disabled || hasOverrideBinding(profileID, button, .longPress)
-            let action = settings.action(for: button, profileID: profileID)
+            let action = settings.action(
+                for: button,
+                profileID: profileID,
+                keymapContext: capturedKeymapContext
+            )
             if button == .back, handlePendingLayerCloseBack() {
                 continue
             }
@@ -1776,7 +1810,11 @@ final class HIDRemoteMonitor {
                         "path=configured reason=single_click_override override_present=true"
                 )
             }
-            let snapshot = interactionSnapshot(button: button, profileID: profileID)
+            let snapshot = interactionSnapshot(
+                button: button,
+                profileID: profileID,
+                keymapContext: capturedKeymapContext
+            )
             if snapshot.mode == .once, !snapshot.recognizesDouble, !snapshot.recognizesLong {
                 guard shouldAcceptRawPress(button: button, action: action,
                     allowsRapidPress: hasSingleClickOverride ||
@@ -1784,7 +1822,7 @@ final class HIDRemoteMonitor {
                         settings.configuredActionOverride?(profileID, button, .longPress) != nil ||
                         snapshot.single.allowsSingleClickRepeat ||
                         settings.allowsRapidPress(for: button, profileID: profileID),
-                    frontmostBundleIdentifier: frontmostBundleIdentifier()) else {
+                    frontmostBundleIdentifier: capturedKeymapContext.frontmostBundleIdentifier) else {
                     diagnosticLogger(
                         "HID PRESS rejected button=\(button.rawValue) " +
                             "action=\(action.rawValue) reason=awaiting_stable_release " +
@@ -1795,15 +1833,25 @@ final class HIDRemoteMonitor {
                 }
             }
             diagnosticLogger("HID GESTURE button=\(button.rawValue) path=raw mode=\(snapshot.mode?.rawValue ?? "invalid") external_result=unknown")
-            let target = frontmostBundleIdentifier()
+            let target = capturedKeymapContext.frontmostBundleIdentifier
+            keymapContextByButton[button] = capturedKeymapContext
             buttonInteractions.handle(.press, button: button, snapshot: snapshot,
                 valid: { [weak self] in
                     guard let self else { return false }
                     return self.profileID == profileID && self.runtimePermissionsAreValid() &&
                         self.frontmostBundleIdentifier() == target &&
-                        snapshot.hasSameBinding(as: self.interactionSnapshot(button: button, profileID: profileID))
+                        snapshot.hasSameBinding(as: self.interactionSnapshot(
+                            button: button,
+                            profileID: profileID,
+                            keymapContext: capturedKeymapContext
+                        ))
                 }, perform: { [weak self] trigger, configured in
-                    self?.performConfiguredAction(for: button, trigger: trigger, captured: configured) ?? false
+                    self?.performConfiguredAction(
+                        for: button,
+                        trigger: trigger,
+                        captured: configured,
+                        keymapContext: capturedKeymapContext
+                    ) ?? false
                 }, beginHold: { [weak self] configured in
                     self?.holdBeginPerformer(configured) ?? false
                 }, endHold: { [weak self] reason in
@@ -1816,23 +1864,35 @@ final class HIDRemoteMonitor {
             if let button = RemoteButton.usageMap[usage],
                !usedNativePassthrough,
                shouldArmNativeEvent(for: button)
-                || settings.action(for: button, profileID: profileID) == .appSwitcher {
+                || settings.action(
+                    for: button,
+                    profileID: profileID,
+                    keymapContext: keymapContextByButton[button]
+                ) == .appSwitcher {
                 eventSuppressor.arm(button: button, edge: .up)
             }
             repeatTimers.removeValue(forKey: usage)?.cancel()
             lastPageRepeatAt.removeValue(forKey: usage)
             if let button = RemoteButton.usageMap[usage] {
+                let releaseKeymapContext = keymapContextByButton[button]
                 if onRuntimeButton?(profileID, button, .release, reportMilliseconds) == true {
+                    keymapContextByButton.removeValue(forKey: button)
                     continue
                 }
                 if buttonInteractions.isTracking(button) {
                     buttonInteractions.handle(.release, button: button,
-                        snapshot: settings.interactionSnapshot(for: button, profileID: profileID),
+                        snapshot: settings.interactionSnapshot(
+                            for: button,
+                            profileID: profileID,
+                            keymapContext: releaseKeymapContext
+                        ),
                         valid: { false }, perform: { _, _ in false })
                     scheduleNonRepeatableRelease(for: button)
+                    keymapContextByButton.removeValue(forKey: button)
                     continue
                 }
                 scheduleNonRepeatableRelease(for: button)
+                keymapContextByButton.removeValue(forKey: button)
                 guard processGestureCommands(gestureRecognizer.release(button)) else { return }
             }
         }
@@ -2243,24 +2303,34 @@ final class HIDRemoteMonitor {
         longPressTimers[button] = timer
     }
 
-    private func interactionSnapshot(button: RemoteButton, profileID: UUID) -> RemoteButtonInteractionSnapshot {
-        var snapshot = settings.interactionSnapshot(for: button, profileID: profileID) { [self] trigger in
+    private func interactionSnapshot(
+        button: RemoteButton,
+        profileID: UUID,
+        keymapContext: KeymapContext? = nil
+    ) -> RemoteButtonInteractionSnapshot {
+        var snapshot = settings.interactionSnapshot(
+            for: button,
+            profileID: profileID,
+            keymapContext: keymapContext
+        ) { [self] trigger in
             hasOverrideBinding(profileID, button, trigger) &&
                 settings.configuredActionOverride?(profileID, button, trigger) == nil
         }
+        let repeatBundleIdentifier = keymapContext?.frontmostBundleIdentifier
+            ?? frontmostBundleIdentifier()
         let repeated = snapshot.mode == .repeatLong ? snapshot.long : snapshot.single
         snapshot.repeatAllowed = Self.shouldRepeat(configured: repeated,
-            frontmostBundleIdentifier: frontmostBundleIdentifier())
+            frontmostBundleIdentifier: repeatBundleIdentifier)
         // 单击按住 / 长按按住使用当前生效方案里的动作；是否允许按住由该动作自己决定，
         // 不能复用“重复单击”的能力判断。
-        if let resolved = holdTargetResolver?(profileID, button) {
+        if let resolved = holdTargetResolver?(profileID, button, keymapContext) {
             snapshot.holdableSingle = resolved.single
             snapshot.holdableLong = resolved.long
         }
         if let action = snapshot.holdDownAction, action.holdableKey != nil {
             snapshot.repeatAllowed = Self.shouldRepeat(
                 action: action.action,
-                frontmostBundleIdentifier: frontmostBundleIdentifier()
+                frontmostBundleIdentifier: repeatBundleIdentifier
             )
         }
         // 方案解析后才知道动作是否可按住：不可用就回到“未设置”，不能把整键判死。
@@ -2288,7 +2358,8 @@ final class HIDRemoteMonitor {
     private func performConfiguredAction(
         for button: RemoteButton,
         trigger: ButtonTrigger,
-        captured: ConfiguredButtonAction? = nil
+        captured: ConfiguredButtonAction? = nil,
+        keymapContext: KeymapContext? = nil
     ) -> Bool {
         guard runtimePermissionsAreValid() else {
             releaseForRevokedPermissions()
@@ -2303,7 +2374,8 @@ final class HIDRemoteMonitor {
         let configured = captured ?? settings.configuredAction(
             for: button,
             trigger: trigger,
-            profileID: profileID
+            profileID: profileID,
+            keymapContext: keymapContext
         )
         if appSwitcherSession.isActive, button == .tv {
             return performAppSwitcherAction(for: button, trigger: trigger)

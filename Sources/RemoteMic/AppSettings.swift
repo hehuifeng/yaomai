@@ -46,6 +46,8 @@ private struct PersonalizedConfiguration: Codable {
     let buttonBindings: [String: ButtonAction]
     let buttonShortcuts: [String: CustomKeyboardShortcut]
     let unifiedBaseBindings: [UnifiedButtonBinding]?
+    /// Optional so configurations written before the feature remain readable.
+    let appKeymapState: AppKeymapState?
     let buttonApplicationProfileIDs: [String: UUID]?
     let secondaryButtonBindings: [String: [String: ConfiguredButtonAction]]
     let buttonRapidPressEnabled: [String: Bool]?
@@ -323,6 +325,7 @@ final class AppSettings: ObservableObject {
         static let buttonGestureTimingsByModel = "buttonGestureTimingsByModel"
         static let buttonGestureLearningsByModel = "buttonGestureLearningsByModel"
         static let customApplicationProfiles = "customApplicationProfiles"
+        static let appKeymapState = "appKeymapState"
         static let peripheralIdentifier = "peripheralIdentifier"
         static let remoteDeviceProfiles = "remoteDeviceProfiles"
         static let selectedRemoteProfileID = "selectedRemoteProfileID"
@@ -433,6 +436,14 @@ final class AppSettings: ObservableObject {
     }
 
     var configuredActionOverride: ((UUID?, RemoteButton, ButtonTrigger) -> ConfiguredButtonAction?)?
+    @Published var appKeymapState = AppKeymapState() {
+        didSet {
+            onInteractionModeChanged?(selectedRemoteProfileID)
+            if let data = try? JSONEncoder().encode(appKeymapState) {
+                defaults.set(data, forKey: Keys.appKeymapState)
+            }
+        }
+    }
     @Published var unifiedBaseBindings: [UnifiedButtonBinding] = [] {
         didSet {
             onInteractionModeChanged?(selectedRemoteProfileID)
@@ -963,6 +974,7 @@ final class AppSettings: ObservableObject {
              "secondaryButtonBindings", "buttonRapidPressEnabled", "continuousRecordingPowerBindingBackup":
             "button_mapping"
         case "customApplicationProfiles": "custom_apps"
+        case "appKeymapState": "app_keymap"
         case "usage.dailyStatistics", "usage.voiceSessionRanking": "usage"
         case "onboardingStagedVoiceBinding": "onboarding"
         default: "other"
@@ -1085,6 +1097,12 @@ final class AppSettings: ObservableObject {
         ) ?? []
         customApplicationProfiles = restoredApplicationProfiles
         ScrollRegionTargetStore.shared.replace(with: restoredApplicationProfiles)
+        appKeymapState = Self.decodeSetting(
+            AppKeymapState.self,
+            forKey: Keys.appKeymapState,
+            from: defaults,
+            corrupted: &corruptedKeys
+        ) ?? AppKeymapState()
 
         applicationLanguage = AppLanguage(
             rawValue: defaults.string(forKey: Keys.applicationLanguage) ?? ""
@@ -1636,6 +1654,19 @@ final class AppSettings: ObservableObject {
         configuredAction(for: button, trigger: .singleClick, profileID: profileID).action
     }
 
+    func action(
+        for button: RemoteButton,
+        profileID: UUID?,
+        keymapContext: KeymapContext?
+    ) -> ButtonAction {
+        configuredAction(
+            for: button,
+            trigger: .singleClick,
+            profileID: profileID,
+            keymapContext: keymapContext
+        ).action
+    }
+
     func setAction(_ action: ButtonAction, for button: RemoteButton) {
         buttonBindings[button] = action
     }
@@ -1772,7 +1803,32 @@ final class AppSettings: ObservableObject {
 
     func configuredAction(for button: RemoteButton, trigger: ButtonTrigger,
                           profileID: UUID?) -> ConfiguredButtonAction {
-        (configuredActionOverride?(profileID, button, trigger)
+        configuredAction(
+            for: button,
+            trigger: trigger,
+            profileID: profileID,
+            keymapContext: nil
+        )
+    }
+
+    /// Resolves one trigger. An explicit binding in the active app keymap wins;
+    /// otherwise the private profile override (absent in public builds) and the
+    /// base mapping apply in that order.
+    func configuredAction(
+        for button: RemoteButton,
+        trigger: ButtonTrigger,
+        profileID: UUID?,
+        keymapContext: KeymapContext?
+    ) -> ConfiguredButtonAction {
+        if let keymapID = resolvedAppKeymapProfileID(for: keymapContext),
+           let keymapBinding = appKeymapBinding(
+               keymapID: keymapID,
+               button: button,
+               trigger: trigger
+           ) {
+            return keymapBinding.normalizedForExecution
+        }
+        return (configuredActionOverride?(profileID, button, trigger)
             ?? configuredBaseAction(for: button, trigger: trigger, profileID: profileID))
             .normalizedForExecution
     }
@@ -2547,6 +2603,7 @@ final class AppSettings: ObservableObject {
             Keys.appIconIdentifier,
             Keys.voiceFnTapModeEnabled,
             Keys.voiceKeyMode,
+            Keys.appKeymapState,
             Keys.totalButtonPressCount,
             Keys.totalVoiceDuration,
             Keys.dailyStatistics,
@@ -2570,6 +2627,7 @@ final class AppSettings: ObservableObject {
                 uniqueKeysWithValues: buttonShortcuts.map { ($0.key.rawValue, $0.value) }
             ),
             unifiedBaseBindings: unifiedBaseBindings,
+            appKeymapState: appKeymapState,
             buttonApplicationProfileIDs: Dictionary(
                 uniqueKeysWithValues: buttonApplicationProfileIDs.map { ($0.key.rawValue, $0.value) }
             ),
@@ -2654,6 +2712,17 @@ final class AppSettings: ObservableObject {
         var preferences = try JSONDecoder().decode(CompleteConfigurationPreferences.self,
             from: JSONSerialization.data(withJSONObject: preferencesRaw))
         let appIDs = (configuration.customApplicationProfiles ?? []).map(\.id)
+        let validatedKeymap = AppKeymapResolver.validatedState(
+            configuration.appKeymapState ?? AppKeymapState()
+        )
+        guard !validatedKeymap.rejected else { throw AppConfigurationError.invalidValues }
+        for profile in validatedKeymap.state.profiles {
+            for binding in profile.bindings {
+                guard Self.validatedConfiguredAction(binding.configured) == binding.configured,
+                      binding.configured.applicationProfileID.map(Set(appIDs).contains) ?? true
+                else { throw AppConfigurationError.invalidValues }
+            }
+        }
         guard configuration.selectedAudioDeviceUID.count <= Self.maximumImportedIdentifierLength,
               (configuration.macMicrophoneInputUID?.count ?? 0) <= Self.maximumImportedIdentifierLength,
               Set(appIDs).count == appIDs.count,
@@ -2822,6 +2891,9 @@ final class AppSettings: ObservableObject {
             buttonGestureTimingsByModel[model.rawValue] = legacyTiming
         }
         customApplicationProfiles = c.customApplicationProfiles ?? []
+        appKeymapState = AppKeymapResolver.validatedState(
+            c.appKeymapState ?? AppKeymapState()
+        ).state
         applicationLanguage = c.applicationLanguage
         if let value = c.appIconIdentifier { appIconIdentifier = value }
         showDockIcon = c.showDockIcon
@@ -3029,6 +3101,29 @@ final class AppSettings: ObservableObject {
             buttonGestureTimingsByModel[model.rawValue] = interactionSettings.timing
         }
         customApplicationProfiles = importedApplicationProfiles
+        let keymapValidation = AppKeymapResolver.validatedState(
+            configuration.appKeymapState ?? AppKeymapState()
+        )
+        var importedKeymapState = keymapValidation.state
+        var keymapRejected = keymapValidation.rejected
+        let importedAppIDs = Set(importedApplicationProfiles.map(\.id))
+        for index in importedKeymapState.profiles.indices {
+            let before = importedKeymapState.profiles[index].bindings.count
+            importedKeymapState.profiles[index].bindings.removeAll { binding in
+                guard Self.validatedConfiguredAction(binding.configured) == binding.configured else {
+                    return true
+                }
+                if let id = binding.configured.applicationProfileID, !importedAppIDs.contains(id) {
+                    return true
+                }
+                return false
+            }
+            if importedKeymapState.profiles[index].bindings.count != before {
+                keymapRejected = true
+            }
+        }
+        if keymapRejected { rejected.insert(Keys.appKeymapState) }
+        appKeymapState = importedKeymapState
         applicationLanguage = configuration.applicationLanguage
         if let appIconIdentifier = configuration.appIconIdentifier {
             self.appIconIdentifier = appIconIdentifier
@@ -3333,12 +3428,19 @@ final class AppSettings: ObservableObject {
     }
 
     func interactionSnapshot(for button: RemoteButton, profileID: UUID? = nil,
+                             keymapContext: KeymapContext? = nil,
                              opaque: (ButtonTrigger) -> Bool = { _ in false }) -> RemoteButtonInteractionSnapshot {
         let timing = buttonInteractionSettings(profileID: profileID)
-        var snapshot = RemoteButtonInteractionSnapshot(settings: timing, mode: interactionModeOverride?(profileID ?? selectedRemoteProfileID, button).map(RemoteButtonHoldMode.init(rawValue:)) ?? timing.mode(for: button),
-            single: configuredAction(for: button, trigger: .singleClick, profileID: profileID),
-            double: configuredAction(for: button, trigger: .doubleClick, profileID: profileID),
-            long: configuredAction(for: button, trigger: .longPress, profileID: profileID),
+        let keymapID = resolvedAppKeymapProfileID(for: keymapContext)
+        let keymapHoldMode = keymapID.flatMap {
+            appKeymapHoldMode(keymapID: $0, button: button)
+        }
+        let profileInteractionMode = interactionModeOverride?(profileID ?? selectedRemoteProfileID, button)
+        var snapshot = RemoteButtonInteractionSnapshot(settings: timing,
+            mode: keymapHoldMode ?? profileInteractionMode.map(RemoteButtonHoldMode.init(rawValue:)) ?? timing.mode(for: button),
+            single: configuredAction(for: button, trigger: .singleClick, profileID: profileID, keymapContext: keymapContext),
+            double: configuredAction(for: button, trigger: .doubleClick, profileID: profileID, keymapContext: keymapContext),
+            long: configuredAction(for: button, trigger: .longPress, profileID: profileID, keymapContext: keymapContext),
             hasOpaqueBinding: ButtonTrigger.allCases.contains(where: opaque),
             repeatInterval: HIDRemoteTiming.repeatIntervalMilliseconds(for: button) ?? 100,
             opaqueDouble: opaque(.doubleClick), opaqueLong: opaque(.longPress))
@@ -3351,7 +3453,8 @@ final class AppSettings: ObservableObject {
         snapshot.holdableSingle = snapshot.single
         snapshot.holdableLong = snapshot.long
         if snapshot.mode == .repeatSingle,
-           interactionModeOverride?(profileID ?? selectedRemoteProfileID, button) == nil,
+           keymapHoldMode == nil,
+           profileInteractionMode == nil,
            timing.migratedRepeatButtons?.contains(button.rawValue) == true,
            snapshot.hasOpaqueBinding || snapshot.recognizesDouble || snapshot.recognizesLong ||
             !snapshot.single.allowsHoldRepeat {
@@ -3361,7 +3464,7 @@ final class AppSettings: ObservableObject {
         // paused state: the button must keep its click and long press instead of going dead.
         // 方案接管时报废模式先留一层：这里的动作用的是基础映射，方案里的动作要等监听层
         // 解析后再判断，否则方案里配好方向键也会被误判成不可用。
-        let modeFromProfile = interactionModeOverride?(profileID ?? selectedRemoteProfileID, button) != nil
+        let modeFromProfile = keymapHoldMode != nil || profileInteractionMode != nil
         if let mode = snapshot.mode, !snapshot.blockers(for: mode).isEmpty,
            !(mode.isHoldDown && modeFromProfile) {
             snapshot.mode = .once

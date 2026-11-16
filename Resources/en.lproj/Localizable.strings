@@ -1546,3 +1546,15 @@
 "connection.history.voice_key_ready" = "Voice button: Fn";
 "connection.history.cooldown" = "Wait a moment; manual attempts must be at least five seconds apart.";
 "button_mapping.profile.created.detail" = "Switched to the new profile";
+
+/* App keymaps */
+"app_keymap.bar.base" = "Global buttons";
+"app_keymap.bar.add_app" = "Add App…";
+"app_keymap.bar.delete_app" = "Remove this App";
+"app_keymap.hint.global" = "Global buttons apply to every app. Add an app to give it its own buttons.";
+"app_keymap.hint.app" = "While “%1$@” is active, these buttons are used; other apps use the global buttons.";
+"app_keymap.delete.confirm" = "Remove “%1$@”'s own buttons?";
+"app_keymap.delete.detail" = "After removal, this app uses the global buttons.";
+"app_keymap.scope.hint" = "Editing “%1$@”'s own buttons: only %2$@ are overridden; other buttons keep the global mapping.";
+"app_keymap.custom_mapping_off" = "“Custom buttons” is off, so app-specific buttons do not apply.";
+"app_keymap.custom_mapping_enable" = "Turn on";

@@ -1545,3 +1545,15 @@
 "connection.history.voice_key_ready" = "语音键已映射为 Fn";
 "connection.history.cooldown" = "请稍后重试；两次手动连接至少间隔五秒。";
 "button_mapping.profile.created.detail" = "已切换到新方案";
+
+/* App keymaps */
+"app_keymap.bar.base" = "全局按键";
+"app_keymap.bar.add_app" = "添加 App…";
+"app_keymap.bar.delete_app" = "删除此 App";
+"app_keymap.hint.global" = "全局按键在所有 App 中生效；点「添加 App…」可以给某个 App 单独设置按键。";
+"app_keymap.hint.app" = "“%1$@”打开时使用这套按键；其他 App 使用全局按键。";
+"app_keymap.delete.confirm" = "删除“%1$@”的专属按键？";
+"app_keymap.delete.detail" = "删除后，这个 App 将使用全局按键。";
+"app_keymap.scope.hint" = "正在编辑“%1$@”的专属按键：只覆盖 %2$@；其他按键继续使用全局映射。";
+"app_keymap.custom_mapping_off" = "「自定义按键」未开启，App 专属按键不会生效。";
+"app_keymap.custom_mapping_enable" = "开启";

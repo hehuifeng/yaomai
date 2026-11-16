@@ -1052,6 +1052,14 @@ private final class RemoteMicAppDelegate: NSObject, NSApplicationDelegate, NSMen
 
     private func startUpdaterIfNeeded() {
         guard !updaterStarted else { return }
+        // Development builds intentionally ship without an appcast. Starting
+        // Sparkle would otherwise point at the official feed and replace this
+        // build with the release app.
+        guard updateFeedSelection.feedURLString(checksForPreReleaseUpdates: false) != nil else {
+            AppLogger.shared.write("UPDATE disabled reason=no_feed_url")
+            updaterStarted = true
+            return
+        }
         updaterController.updater.automaticallyChecksForUpdates =
             UpdateCheckPolicy(
                 checksForPreReleaseUpdates: model.settings.checksForPreReleaseUpdates

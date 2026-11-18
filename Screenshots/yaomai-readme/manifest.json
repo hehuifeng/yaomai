@@ -1,0 +1,25 @@
+{
+  "batch": "yaomai-readme",
+  "date": "2026-11-16",
+  "purpose": "README 界面截图：展示按 App 分键位的按键页",
+  "generated_by": "SettingsScreenshotRenderer offscreen harness (REMOTE_MODEL=rc003, APP_KEYMAP=1)",
+  "storage": "repository",
+  "items": [
+    {
+      "file": "app-keymap-bar.png",
+      "format": "png",
+      "width": 1200,
+      "height": 684,
+      "sha256": "0566c0028f92a2f05f7abd957602632a7cb56d25c665d472e0be999a9684cb10",
+      "purpose": "按键页顶部的 App 胶囊栏与作用域提示"
+    },
+    {
+      "file": "mapping-full.png",
+      "format": "png",
+      "width": 1200,
+      "height": 820,
+      "sha256": "0023d072fdcdb73c7b9e4193f4e49df9ceb645563991e8eaa7ef820c5ff1ae2a",
+      "purpose": "选中 Cursor 后编辑其专属按键的完整按键页"
+    }
+  ]
+}

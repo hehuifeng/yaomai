@@ -1,10 +1,14 @@
 # 遥麦 (YaoMai)
 
-A public, self-built implementation of **per-application button keymaps** for [SayAll](https://github.com/HD838A/remote-mic-app).
+One remote, one button — but a different action in every app.
 
-SayAll's per-app keymap switching ships in a private `SayAllButtonProfiles` package, so public builds always fall back to a single global mapping. This repository re-implements that behaviour using only the public GPL-3.0 source: one keymap per foreground app, no membership, no private components, no unlock codes.
+遥麦 gives each macOS app its own button keymap for the **Xiaomi Bluetooth Remote 2 Pro (RC003)** and **Xiaomi Bluetooth Remote 2 (RC001)**: whichever app is in front, the remote follows it. It is a modified build of [SayAll](https://github.com/HD838A/remote-mic-app) for macOS, and its development build is designed to install alongside the official app without sharing locks, data or update feeds.
 
-This is **not** an official SayAll release and is not affiliated with the project or its authors. It does not bypass any paid feature, licence check or technical protection measure — it simply re-implements one behaviour in public code.
+The name comes from 遥 (remote) and 麦 (microphone).
+
+Being a modified build, it also fills one gap: per-app keymap switching ships in SayAll's private `SayAllButtonProfiles` package, so public builds only have a single global mapping — 遥麦 re-implements that behaviour in public code. It does not unlock membership, bundle private components or bypass any licence check.
+
+This is **not** an official SayAll release and is not affiliated with the project or its authors.
 
 The documentation is written in Chinese — start with [README.md](README.md).
 

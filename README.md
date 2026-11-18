@@ -1,45 +1,87 @@
-# 遥麦
+# 遥麦 · 让小米蓝牙遥控器 2 Pro 一个键干一件事
 
-**给「无线麦 SayAll」补上按 App 分键位的公开实现。**
+> 同一颗按键，在 Cursor 里是"说完就发"，在浏览器里是"刷新页面"，在剪辑软件里是"往后跳一帧"。
 
-官方版的「键位方案」可以按前台 App 自动切换，但那套能力在私有组件 `SayAllButtonProfiles` 里，公开构建拿不到——代码里直接返回 `nil`，所以你自己编译的版本无论怎么设置，都只有一套全局按键。
+遥麦是 macOS 上给**小米蓝牙遥控器 2 Pro（型号 RC003）**和**小米蓝牙遥控器 2（RC001）**用的按键方案：把遥控器连上 Mac，按住语音键说话，文字直接进当前窗口；再给每个 App 单独设一套按键，谁在前台，按键就听谁的。
 
-这个仓库用公开代码把这件事重新实现了一遍：**一个 App 一套键位，按前台 App 自动生效**，不依赖会员、不碰私有组件、不需要任何授权码。
+名字取自"遥控器"的「遥」和"麦克风"的「麦」。它是开源项目 [SayAll](https://github.com/HD838A/remote-mic-app) 的修改版，在它之上主要新增了两件事：**按前台 App 分别设置按键**，以及**一个能与官方版同时安装、互不干扰的开发版构建**；其余蓝牙连接、语音输入、手势等能力直接来自上游。
 
-## 先说清楚这不是什么
+## 这是什么？（第一次听说的人看这段）
 
-- **不是官方版本**。我不是 SayAll 的开发者，和 SayAll 官方没有任何关系，也没有得到官方背书。
-- **不解锁任何东西**。仓库里没有破解、没有密钥、没有反编译产物，也没有私有包。它只是用 GPL 公开的源码，重新写了一份"按 App 选映射"的实现。
-- **不包含付费组件**。`SayAllButtonProfiles`、组合动作库、会员权益都不在里面；这些能力的替代品不是本仓库的目标。
+小米蓝牙遥控器本来是看电视用的：蓝牙连接、自带麦克风、有一颗独立的语音键。后来大家发现它特别适合当 AI 的"语音手柄"——按住语音键说需求，AI 那边就直接收到文字，手不用离开遥控器。这个用法在 Cursor、Claude Code、Codex 这类工具上尤其顺手，也就是大家说的 vibe coding（氛围编程）。
 
-## 它做了什么
+让遥控器在 Mac 上跑起来的开源软件是 SayAll。**遥麦 在它的基础上多做了一件事：按键可以按 App 分开设。**
+
+![按键页顶部的 App 栏](Screenshots/yaomai-readme/app-keymap-bar.png)
+
+截图里顶部那排「全局按键 / Cursor / 浏览器 / 终端」就是新加的东西：点某个 App，下面改的只有那个 App 的按键，其余保持一致。
+
+## 为什么要分 App
+
+因为一台遥控器在不同软件里的角色完全不一样：
+
+| 你在做什么 | 你希望按键做什么 |
+|---|---|
+| 写代码 | 语音键说话，确认键发送 |
+| 浏览网页 | 方向键翻页，返回键后退 |
+| 剪辑、设计 | 方向键微调，长按加速 |
+| 开会 | 一键静音，切到会议窗口 |
+
+官方公开版只有一套全局按键。遥麦 让你只改想改的键，其余继续继承全局——不用为每个 App 复制一整张表。
+
+## 功能
 
 ### 一个 App 一套键位
 
-- 每个 App 一份稀疏键位：只记录你显式改过的「按键 + 触发方式」，没改的继续走全局，不用给每个 App 复制一整张表。
-- 显式设成「禁用」的不会回落到全局——"在这个 App 里这个键什么都不做"是一种真实需求。
-- **按下瞬间记录前台 App，整个手势沿用同一份映射**：单击、双击、长按、按住、重复、松开都算同一次手势，中途切 App 不会一半用 A 的配置、一半用 B 的。
-- 解析顺序是 App 专属按键 > 私有方案覆盖（公开构建里为空）> 全局映射。按住执行、原生透传、交互模式判定都按同一顺序，不会"显示一个键、执行另一个键"。
-- 设置页顶部栏是「全局按键」+「添加 App…」，选中某个 App 时只编辑那个 App 的按键。
-- 导入配置时会校验这份映射（schema、动作合法性、引用的 App 是否存在），不合法整份拒绝，不会半套生效；完整配置备份也包含它。
+- 稀疏存储：只记住你显式改过的「按键 + 触发方式」，没动过的走全局。
+- 显式设成「禁用」的键不会回落到全局——"在这个 App 里这个键什么都不做"也是需求。
+- 编辑某个 App 时，页面会明确写出这次只覆盖哪些键，其余继续用全局映射。
+- 导入配置时会校验这份映射，不合法整份拒绝；完整配置备份也包含它。
 
-### 开发版和官方版能装在同一台机器上
+![编辑 Cursor 的专属按键](Screenshots/yaomai-readme/mapping-full.png)
 
-- `AppIdentity` 靠 Info.plist 里的 `SayAllDevelopmentEdition` 区分身份，决定用哪套 bundle id 和目录。
-- 开发版有独立的单实例锁、Application Support 目录（`RemoteMicDev`）、日志目录（`Logs/RemoteMicDev`）、诊断目录（`SayAllDev`）。官方版继续用历史目录名 `RemoteMic`，已有数据不迁移、不受影响。
-- 开发版打包时去掉 `SUFeedURL`、关掉 Sparkle 自动更新，不会被官方 appcast 换成正式版；没有 feed 时启动直接跳过更新器。
-- `scripts/package-dev-app.sh` 一条命令走完：release 构建 → 改身份 → 校验 → 递增构建号 → 退出旧实例 → 装到 `~/Applications/SayAllDev.app` → 启动。
+### 手势不会串味
 
-## 和官方付费版的区别
+- **按下瞬间记录前台 App，整个手势沿用同一份映射**：单击、双击、长按、按住、重复、松开都算同一次手势。按住不放时切到别的 App，松开仍按当初那套执行。
+- 展示、手势判定、按住连发、原生透传都用同一个解析结果，不会"显示一个键、执行另一个键"。
 
-| | 官方「键位方案」 | 遥麦 |
+### 开发版可以和官方版并存
+
+- 独立的单实例锁、数据目录、日志目录、诊断目录，不抢锁、不写坏数据。
+- 开发版不带更新 feed、关掉自动更新，不会被官方版本顶掉。
+- 一条命令完成构建、改身份、校验、递增构建号、替换旧版本、启动。
+
+### 底座能力
+
+蓝牙连接（小米 RC001 / RC003）、语音输入与虚拟麦克风、双击/长按/按住连发、组合动作、常用语、使用统计与回眸、加密诊断日志、Sparkle 更新——这些来自上游，遥麦 一并具备，改的只是按键归属这一层。
+
+## 我的遥控器能用吗
+
+| 遥控器 | 型号 | 支持 |
 |---|---|---|
-| 按 App 切换 | 支持（自动模式） | 支持 |
-| 方案库 / 多套方案 | 支持 | 不支持，只有「全局 + 每个 App」两层 |
-| 依赖 | 私有组件 + 会员 | 无，纯公开代码 |
-| 手动切换 | 支持 | 不支持（只看前台 App） |
+| 小米蓝牙遥控器 2 Pro | RC003 | ✅ 主要目标机型 |
+| 小米蓝牙遥控器 2 | RC001 | ✅ |
 
-如果哪天官方把这块能力开放到公开构建，请直接用官方的，我这个就退休。
+遥控器改完按键后仍然是电视遥控器，不影响原来的用途。
+
+## 开始之前要准备什么
+
+- Apple Silicon Mac（macOS 14+）或 Intel Mac（macOS 13+）。
+- 小米蓝牙遥控器 2 / 2 Pro，已完成蓝牙配对。
+- 一个虚拟麦克风（官方安装包会带，或自备 BlackHole 2ch），语音工具里要选它作为输入。
+- 输入监控、辅助功能权限——第一次使用时系统会弹窗，跟着点允许即可。
+
+## 适合谁
+
+- 手上有小米蓝牙遥控器 2 Pro / 2，想把它当 Mac 语音手柄的人。
+- 日常在几个固定软件之间切换，希望同一个键在不同 App 干不同事的人。
+- 愿意自己编译、或者想在自己机器上同时跑开发版和官方版的人。
+
+## 不适合谁
+
+- **完全不想折腾电脑设置的普通用户**：请直接用官方 SayAll，它已经把"连上就能说话"做好了；遥麦 目前只有源码，没有安装包。
+- 需要多套方案手动切换、方案库管理的人：遥麦 只有「全局 + 每个 App」两层。
+- 用 Windows 的人：这是 macOS 客户端，Windows 版是另一个项目。
 
 ## 自己构建
 
@@ -49,13 +91,13 @@
 swift build --disable-keychain
 ```
 
-只编译。自测：
+编译。自测：
 
 ```bash
 scripts/test.sh
 ```
 
-仓库自带的自测（`Tests/SelfTest`），不依赖 Xcode 的 Testing 框架，48 项全过才算好。
+自带的自测（`Tests/SelfTest`），不依赖 Xcode 的 Testing 框架，48 项全过才算好。
 
 装成一个独立的开发版：
 
@@ -63,32 +105,39 @@ scripts/test.sh
 scripts/package-dev-app.sh
 ```
 
-默认 bundle id `com.hehf.SayAllDev`、显示名 `遥麦 Dev`，装在 `~/Applications/SayAllDev.app`，装完自动启动；加 `SAYALL_DEV_DEFER_LAUNCH=1` 只装不启动，想换身份就设 `SAYALL_DEV_BUNDLE_IDENTIFIER` / `SAYALL_DEV_DISPLAY_NAME`。
+默认 bundle id `com.hehf.SayAllDev`、显示名 `遥麦`，装在 `~/Applications/遥麦.app`，装完自动启动。加 `SAYALL_DEV_DEFER_LAUNCH=1` 只装不启动；想换身份就设 `SAYALL_DEV_BUNDLE_IDENTIFIER` / `SAYALL_DEV_DISPLAY_NAME`。
 
-`Tests/RemoteMicTests` 用的是 Swift Testing，需要完整 Xcode：`swift test --disable-keychain`。只装 Command Line Tools 会报 `no such module 'Testing'`，这是工具链限制。
+`Tests/RemoteMicTests` 用的是 Swift Testing，需要完整 Xcode：`swift test --disable-keychain`。
+
+## 和官方版的关系
+
+遥麦 是独立的修改版，不是官方发行版，也没有官方背书。
+
+"按前台 App 分键位"在官方版本里由私有的 `SayAllButtonProfiles` 组件提供，公开构建拿不到，所以官方公开版只有全局按键。遥麦 用公开代码把这块重新实现了一遍：不解锁会员、不包含私有组件、不绕过任何授权。如果哪天官方把这项能力开放到公开构建，请优先用官方的。
 
 ## 跟上上游
 
-这个仓库保留了完整的上游历史，`upstream` 远端指向官方：
+仓库保留了完整的上游历史，`upstream` 远端指向官方：
 
 ```bash
 git fetch upstream
 git merge upstream/main
 ```
 
-冲突热点集中在 `AppSettings.swift`、`SettingsView.swift`、`HIDRemoteMonitor.swift`、`BridgeAppModel.swift` 四个文件，合并后建议跑一遍 `scripts/test.sh` 再真机冒烟。
+冲突热点集中在 `AppSettings.swift`、`SettingsView.swift`、`HIDRemoteMonitor.swift`、`BridgeAppModel.swift`，合并后建议跑一遍 `scripts/test.sh` 再真机冒烟。
 
 ## 来源、许可与边界
 
-- 上游项目：[HD838A/remote-mic-app](https://github.com/HD838A/remote-mic-app)，GPL-3.0-only。本仓库是它的衍生作品，同样以 `GPL-3.0-only` 发布，全文见 [LICENSE.md](LICENSE.md)；上游版权与第三方来源见 [COPYRIGHT.md](COPYRIGHT.md)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+- 上游项目：[HD838A/remote-mic-app](https://github.com/HD838A/remote-mic-app)，`GPL-3.0-only`。遥麦 是它的衍生作品，同样以 `GPL-3.0-only` 发布，全文见 [LICENSE.md](LICENSE.md)；上游版权与第三方来源见 [COPYRIGHT.md](COPYRIGHT.md)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 - **我改了什么**：从上游最新提交起有两个提交——一个加按 App 键位，一个加可共存的开发版身份；改动日期 2026-11。完整 diff 可以直接和 `upstream/main` 对比。
-- **图标**：本仓库的 App 图标（`Resources/AppIcon.icns`、`AppIcon.png`、`AppIcons/*.png`）是我自己画的，不属于上游 [LOGO-LICENSE.md](LOGO-LICENSE.md) 的授权范围；仓库里不包含官方 Logo 文件。
-- **名字**：`遥麦` 是这个修改版的名字，只表示"改造自 SayAll"，不代表官方，也不表示得到官方认可。文中出现的「无线麦 SayAll」仅用于说明兼容对象。
-- 不保证可用、不提供支持、不承诺跟进上游更新。请勿用于商业分发。
+- **图标**：本仓库的 App 图标是我自己画的，不属于上游 [LOGO-LICENSE.md](LOGO-LICENSE.md) 的授权范围，仓库里不包含官方 Logo 文件。
+- **名字**：`遥麦` 是这个修改版的名字，只表示改造自 SayAll，不代表官方。
+- 截图来自开发版设置页的离屏渲染，用于说明界面结构；实际使用前需要在按键页打开「自定义按键」。
+- 不保证可用、不提供支持、不承诺跟进上游更新，请勿用于商业分发。
 
 ## 致谢
 
-蓝牙、音频、HID、按键手势、发布流程这些底座都是上游作者和贡献者做的，我只是在公开代码上补了一个自己需要的维度。
+蓝牙、音频、HID、手势、发布流程这些底座都是上游作者和贡献者做的，我只是在公开代码上补了自己需要的一个维度。
 
 开发文档入口：[DOCUMENTATION.md](DOCUMENTATION.md)
 

@@ -6,15 +6,16 @@ This file is a convenience translation of the current mandatory design rules. Th
 
 ## Product names and promotional copy
 
+This repository is a personal modified build of SayAll; the product name is 遥麦 (YaoMai).
+
 | Context | Required name |
 | --- | --- |
-| English product name | `SayAll` |
-| Product reference in English promotional copy | `SayAll App` |
-| Chinese product name | 无线麦 SayAll |
-| Product reference in Chinese promotional copy | 无线麦 SayAll App |
+| Chinese product name | 遥麦 |
+| Product reference in Chinese promotional copy | 遥麦 App |
+| English product name | YaoMai (the in-app display name is 遥麦 in both languages) |
 
-- Do not use `Remote Mic`, `Wireless Mic`, or `SayAll Wireless Mic` as the English product name.
-- Keep one ASCII space between the Chinese and English parts. Do not use the old joined name, the `.app` suffix, or the Chinese-only short name for the current product.
+- The upstream names 无线麦 SayAll / `SayAll` remain only in the upstream resource baseline under `Resources/*.lproj` (to reduce merge conflicts) and in technical descriptions of the `SayAll` virtual microphone device; neither is used as this product's display name.
+- Development packaging replaces the upstream display name with 遥麦 inside the built bundle via `scripts/apply-dev-branding.py`; the repository's source resources are not rewritten in place.
 - Apply these names to pages, buttons, errors, permission text, accessibility labels, help, and release notes.
 - These rules change text only. Keep layout, behavior, filenames, paths, bundle identifiers, protocols, data keys, and compatibility identifiers unchanged.
 - Keep exact legacy filenames when explaining installation migration. Generic microphone descriptions are not product names.

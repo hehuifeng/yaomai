@@ -998,7 +998,7 @@ struct SettingsView: View {
                     )
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: -2) {
-                    Text(verbatim: "SayAll")
+                    Text("app.name")
                         .font(BrandFont.sidebarTitleFont(size: SettingsPageBehavior.sidebarHeaderTitleFontSize))
                     Text(currentVersion)
                         .font(.system(size: SettingsPageBehavior.sidebarHeaderVersionFontSize))

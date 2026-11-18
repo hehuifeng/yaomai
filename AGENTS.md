@@ -36,11 +36,11 @@ G-DOC.authority=chinese
 
 ## 产品命名规范
 
-- 英文产品名统一为 `SayAll`，不得使用 `Remote Mic`、`Wireless Mic` 或 `SayAll Wireless Mic` 作为产品名。
-- 中文产品名统一为「无线麦 SayAll」，保留“无线麦”和“SayAll”之间的半角空格。
-- 中文宣传文案中的产品称呼统一为「无线麦 SayAll App」；英文宣传文案使用 `SayAll App`。
+- 本仓库为个人修改版，产品名统一为「遥麦」；英文语境可写作 `YaoMai`，应用内显示名中英文均为「遥麦」。
+- 中文宣传文案中的产品称呼统一为「遥麦 App」。
+- 上游资源基线 `Resources/*.lproj` 保留上游「无线麦 SayAll」/`SayAll` 文案以减少与上游合并的冲突；开发版打包时由 `scripts/apply-dev-branding.py` 在构建产物内统一替换为「遥麦」，不得在仓库源码资源里批量替换。
 - 上述规则适用于普通用户可见的页面、按钮、提示、错误、权限说明、辅助功能标签、帮助、版本说明和宣传内容；完整规则见 [`design-qa.md` 的产品命名与宣传文案](design-qa.md#产品命名与宣传文案)。
-- 历史路径、代码标识符、Bundle ID、可执行文件、协议、数据键、安装器和发布资产保持兼容；引用 `Remote Mic.app` 等真实旧名称时必须保留准确字面值，不得因文案统一改动这些技术边界。
+- 历史路径、代码标识符、Bundle ID（`com.hehf.SayAllDev`）、可执行文件 `RemoteMic`、协议、数据键、安装器和发布资产保持兼容；引用 `Remote Mic.app` 等真实旧名称时必须保留准确字面值，不得因文案统一改动这些技术边界。
 
 ## 文件命名规范
 

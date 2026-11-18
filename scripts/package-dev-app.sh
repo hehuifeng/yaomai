@@ -9,9 +9,9 @@ set -euo pipefail
 
 ROOT="${0:A:h:h}"
 BUNDLE_IDENTIFIER="${SAYALL_DEV_BUNDLE_IDENTIFIER:-com.hehf.SayAllDev}"
-DISPLAY_NAME="${SAYALL_DEV_DISPLAY_NAME:-遥麦 Dev}"
+DISPLAY_NAME="${SAYALL_DEV_DISPLAY_NAME:-遥麦}"
 URL_SCHEME="${SAYALL_DEV_URL_SCHEME:-sayall-dev}"
-TARGET="${SAYALL_DEV_APP_TARGET:-$HOME/Applications/SayAllDev.app}"
+TARGET="${SAYALL_DEV_APP_TARGET:-$HOME/Applications/遥麦.app}"
 STATE="$HOME/.sayall-dev-build"
 
 if [[ "$(uname -m)" == x86_64 ]]; then
@@ -78,6 +78,11 @@ plutil -replace CFBundleVersion -string "$next_build" "$plist"
 plutil -replace SayAllSourceDirty -bool "$dirty" "$plist" 2>/dev/null ||
   plutil -insert SayAllSourceDirty -bool "$dirty" "$plist"
 
+# 中文/英文的本地化表把官方产品名写死在 InfoPlist.strings 和
+# Localizable.strings 里，会盖掉上面写进 Info.plist 的显示名；这里只改构建
+# 产物，仓库资源继续跟随上游。
+python3 "$ROOT/scripts/apply-dev-branding.py" "$app" "$DISPLAY_NAME"
+
 actual_bundle="$(plutil -extract CFBundleIdentifier raw -o - "$plist")"
 if [[ "$actual_bundle" != "$BUNDLE_IDENTIFIER" ]]; then
   print -u2 "Built app has bundle identifier $actual_bundle, expected $BUNDLE_IDENTIFIER"
@@ -105,7 +110,7 @@ install_app() {
     ditto "$app" "$staged/SayAll.app" || return 1
     codesign --verify --deep --strict "$staged/SayAll.app" || return 1
     if [[ -e "$destination" ]]; then
-      backup="$HOME/.Trash/SayAllDev.app.local-$(date -u +%Y%m%dT%H%M%S)-$$"
+      backup="$HOME/.Trash/yaomai.app.local-$(date -u +%Y%m%dT%H%M%S)-$$"
       test ! -e "$backup" && mv "$destination" "$backup" || return 1
     fi
     if ! mv "$staged/SayAll.app" "$destination"; then

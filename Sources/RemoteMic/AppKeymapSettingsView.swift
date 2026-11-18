@@ -16,8 +16,7 @@ struct AppKeymapToolbar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+            ScrollView(.horizontal, showsIndicators: false) {                HStack(spacing: 6) {
                     chip(
                         localization.text("app_keymap.bar.base"),
                         selected: editingProfileID == nil
@@ -92,6 +91,18 @@ struct AppKeymapToolbar: View {
                 editingProfileID = nil
             }
         }
+        // 截图夹具：读图需要「已选中某个 App」的编辑态，生产运行不会设置这个变量。
+        .onAppear(perform: selectScreenshotProfileIfRequested)
+    }
+
+    private func selectScreenshotProfileIfRequested() {
+        guard editingProfileID == nil,
+              let name = ProcessInfo.processInfo.environment[
+                  "REMOTE_MIC_SETTINGS_SCREENSHOT_APP_KEYMAP_SELECT"
+              ],
+              let profile = settings.appKeymapProfiles.first(where: { $0.displayName == name })
+        else { return }
+        editingProfileID = profile.id
     }
 
     private var selectedProfile: AppKeymapProfile? {

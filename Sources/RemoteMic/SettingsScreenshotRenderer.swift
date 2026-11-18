@@ -137,6 +137,60 @@ enum SettingsScreenshotRenderer {
         let settings = AppSettings(defaults: defaults)
         settings.applicationLanguage = language
         settings.completeOnboarding()
+        // App 专属按键的读图夹具：按键页顶部要能看到多个 App 胶囊，且不再显示
+        // 「自定义按键未开启」提示，README 与测试手册才能证明功能确实生效。
+        if ProcessInfo.processInfo.environment[
+            "REMOTE_MIC_SETTINGS_SCREENSHOT_APP_KEYMAP"
+        ] == "1" {
+            settings.customMappingEnabled = true
+            let cursor = AppKeymapProfile(
+                bundleIdentifier: "com.todesktop.230313mzl4w4u92",
+                displayName: "Cursor"
+            )
+            let browser = AppKeymapProfile(
+                bundleIdentifier: "com.apple.Safari",
+                displayName: language == .english ? "Safari" : "浏览器"
+            )
+            let terminal = AppKeymapProfile(
+                bundleIdentifier: "com.apple.Terminal",
+                displayName: language == .english ? "Terminal" : "终端"
+            )
+            func binding(
+                _ profile: AppKeymapProfile,
+                _ button: RemoteButton,
+                _ trigger: ButtonTrigger,
+                _ action: ButtonAction
+            ) -> AppKeymapBinding {
+                AppKeymapBinding(
+                    keymapID: profile.id,
+                    button: button,
+                    trigger: trigger,
+                    configured: ConfiguredButtonAction(action: action, shortcut: nil)
+                )
+            }
+            var state = AppKeymapState()
+            state.profiles = [
+                AppKeymapProfile(
+                    id: cursor.id,
+                    bundleIdentifier: cursor.bundleIdentifier,
+                    displayName: cursor.displayName,
+                    bindings: [binding(cursor, .ok, .singleClick, .returnKey)]
+                ),
+                AppKeymapProfile(
+                    id: browser.id,
+                    bundleIdentifier: browser.bundleIdentifier,
+                    displayName: browser.displayName,
+                    bindings: [binding(browser, .up, .singleClick, .commandNextTab)]
+                ),
+                AppKeymapProfile(
+                    id: terminal.id,
+                    bundleIdentifier: terminal.bundleIdentifier,
+                    displayName: terminal.displayName,
+                    bindings: [binding(terminal, .ok, .singleClick, .escape)]
+                ),
+            ]
+            settings.appKeymapState = state
+        }
         if let modelName = ProcessInfo.processInfo.environment[
             "REMOTE_MIC_SETTINGS_SCREENSHOT_REMOTE_MODEL"
         ], let remoteModel = XiaomiRemoteModel(rawValue: modelName) {
